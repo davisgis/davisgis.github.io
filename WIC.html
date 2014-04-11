@@ -313,12 +313,12 @@ bufferParams.outSpatialReference = map.spatialReference;
         dojo.forEach(sortedFeatures, function(result) {          
 /*
             var content = [];
-            content.push(result.attributes.FACILITY + "<br />" + result.attributes.ADDRESS + " - " + result.attributes.CITY + "<br />");
+            content.push(result.attributes.NAME + "<br />" + result.attributes.ADDRESS + " - " + result.attributes.CITY + "<br />");
             content.push(result.attributes.PHONE + "--" + result.distance + " miles<br/>");
             var formatContent = content.join("");
 */
              var content = [];
-            content.push(result.attributes.FACILITY + "<br />" + result.attributes.ADDRESS + " - " + result.attributes.CITY + "<br />");
+            content.push(result.attributes.NAME + "<br />" + result.attributes.ADDRESS + " - " + result.attributes.CITY + "<br />");
             if(queryVal == "offSat") {
                content.push(result.attributes.PHONE + " -- " + result.distance + " miles<br/>"); 
             }else{
@@ -327,7 +327,7 @@ bufferParams.outSpatialReference = map.spatialReference;
             
             var formatContent = content.join("");
             var resultItem = new dojox.mobile.ListItem({
-                label : result.attributes.FACILITY
+                label : result.attributes.NAME
             });
             resultItem.set("class", "mblVariableHeight");
             resultItem.domNode.innerHTML = formatContent;
@@ -580,7 +580,7 @@ dojo.addOnLoad(init);
 
 <body >
 <div id="homeView" dojoType="dojox.mobile.View" selected="true">
-<h1 dojoType="dojox.mobile.Heading"> Find WIC Services </h1>
+<h1 dojoType="dojox.mobile.Heading"> Find Arkansas Rural Health Clinics </h1>
 <ul dojoType="dojox.mobile.EdgeToEdgeList" >
 <!--<li dojoType="dojox.mobile.ListItem" id="centerItem" moveTo="resultsView" title="Find Nearby Warning Center"
 iconPos="0,42,32,32" rightText="" >
@@ -621,7 +621,7 @@ Change Search Distance
     <table width="250" border="0">
         <tr>
            <td > <img  src="images/WICImage2.png"  alt="WIC image" style="clip: rect(0px, 32px, 32px, 0px); top: 7px; left: 8px;" /></td>       
-        <td onclick="window.location.href = 'http://health.mo.gov/living/families/wic/index.php'" >Missouri WIC Program</td>
+            <td onclick="window.location.href = 'http://health.mo.gov/living/families/wic/index.php'" >This page is for demonstration purposes ONLY and the template code comes from: http://gis.dhss.mo.gov/Website/mobileWIC/WIC.html</td>
         </tr>
 </table>   
 </div>
