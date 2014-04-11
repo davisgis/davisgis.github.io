@@ -69,7 +69,7 @@ if (supportsOrientationChange) {
 }
 //routeTask = new esri.tasks.RouteTask("http://servicesbeta.esri.com/ArcGIS/rest/services/Network/USA/NAServer/Route");
 routeTask = new esri.tasks.RouteTask("https://ogi.oa.mo.gov/ArcGIS/rest/services/BaseMap/Route/NAServer/Route");
-locator = new esri.tasks.Locator("http://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer");
+locator = new esri.tasks.Locator("http://www.geostor.arkansas.gov/ArcGIS/rest/services/GeoStor_Locator/GeocodeServer");
 //locator2 = new esri.tasks.Locator("http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Locators/ESRI_Geocode_USA/GeocodeServer");   
 dojo.connect(locator, "onAddressToLocationsComplete", showGeocodeResults);
 var spatialReference = new esri.SpatialReference({
@@ -118,7 +118,7 @@ dojo.connect(dijit.byId('geoLocateItem'), "onClick", function() {
 }
     });
 dojo.connect(map, "onLoad", function(map) {
-    geomService = new esri.tasks.GeometryService("http://gis.dhss.mo.gov/ArcGIS/rest/services/Geometry/GeometryServer");
+    geomService = new esri.tasks.GeometryService("http://www.geostor.arkansas.gov/ArcGIS/rest/services/Geometry/GeometryServer");
     routeParams = new esri.tasks.RouteParameters();
     routeParams.stops = new esri.tasks.FeatureSet();
     routeParams.returnRoutes = true;
@@ -153,7 +153,7 @@ offSatSymbol = new esri.symbol.PictureMarkerSymbol('images/Office.png', 32, 32);
     offSatInfoTemplate = new esri.InfoTemplate();
     offSatInfoTemplate.setTitle("<b>${FACILITY}</b>");
     offSatInfoTemplate.setContent("${ADDRESS}<br/>" + "${CITY},  ${STATE}  ${ZIP}<br/>" + "Phone: ${PHONE}<br>" + "Hours: ${HOURS}");
-    offSatFeatureLayer = new esri.layers.FeatureLayer("http://gis.dhss.mo.gov/arcgis/rest/services/sdeWIC/MapServer/0", {
+    offSatFeatureLayer = new esri.layers.FeatureLayer("http://www.geostor.arkansas.gov/ArcGIS/rest/services/FEATURE_SERVICES/GEOSTOR_HEALT/MapServer/7", {
         id : "offSatFeatureLayer",
         mode : esri.layers.FeatureLayer.MODE_SELECTION,
         outFields : ['*'],
@@ -167,7 +167,7 @@ offSatSymbol = new esri.symbol.PictureMarkerSymbol('images/Office.png', 32, 32);
     venInfoTemplate.setTitle("<b>${FACILITY}</b>");
     venInfoTemplate.setContent("${ADDRESS}<br/>" + "${CITY},  ${STATE}  ${ZIP}<br/>" + "${Description}");
 
-    venFeatureLayer = new esri.layers.FeatureLayer("http://gis.dhss.mo.gov/arcgis/rest/services/sdeWIC/MapServer/1", {
+    venFeatureLayer = new esri.layers.FeatureLayer("http://www.geostor.arkansas.gov/ArcGIS/rest/services/FEATURE_SERVICES/GEOSTOR_HEALT/MapServer/7", {
         id : "venFeatureLayer",
         mode : esri.layers.FeatureLayer.MODE_SELECTION,
         outFields : ['*'],
