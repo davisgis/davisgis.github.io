@@ -151,7 +151,7 @@ dojo.connect(map, "onLoad", function(map) {
 offSatSymbol = new esri.symbol.PictureMarkerSymbol('images/Office.png', 32, 32);
     offSatRenderer = new esri.renderer.SimpleRenderer(offSatSymbol);
     offSatInfoTemplate = new esri.InfoTemplate();
-    offSatInfoTemplate.setTitle("<b>${FACILITY}</b>");
+    offSatInfoTemplate.setTitle("<b>${NAME}</b>");
     offSatInfoTemplate.setContent("${ADDRESS}<br/>" + "${CITY},  ${STATE}  ${ZIP}<br/>" + "Phone: ${PHONE}<br>" + "Hours: ${HOURS}");
     offSatFeatureLayer = new esri.layers.FeatureLayer("http://www.geostor.arkansas.gov/ArcGIS/rest/services/FEATURE_SERVICES/GEOSTOR_HEALT/MapServer/7", {
         id : "offSatFeatureLayer",
@@ -164,7 +164,7 @@ offSatSymbol = new esri.symbol.PictureMarkerSymbol('images/Office.png', 32, 32);
         venSymbol = new esri.symbol.PictureMarkerSymbol('images/grocery_cart.png', 32, 32);
     venRenderer = new esri.renderer.SimpleRenderer(venSymbol);
     venInfoTemplate = new esri.InfoTemplate();
-    venInfoTemplate.setTitle("<b>${FACILITY}</b>");
+    venInfoTemplate.setTitle("<b>${NAME}</b>");
     venInfoTemplate.setContent("${ADDRESS}<br/>" + "${CITY},  ${STATE}  ${ZIP}<br/>" + "${Description}");
 
     venFeatureLayer = new esri.layers.FeatureLayer("http://www.geostor.arkansas.gov/ArcGIS/rest/services/FEATURE_SERVICES/GEOSTOR_HEALT/MapServer/7", {
