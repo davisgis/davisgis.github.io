@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=7,IE=9" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="format-detection" content="telephone=yes">
+
+<title>MO WIC Locations</title>
+<link type="text/css" href='http://serverapi.arcgisonline.com/jsapi/arcgis/2.7/js/dojo/dojox/mobile/themes/iPhone/iPhone.css' rel='stylesheet'>
+<link type="text/css" href="http://serverapi.arcgisonline.com/jsapi/arcgis/2.7/js/dojo/dojox/mobile/themes/buttons.css" rel="stylesheet">
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+
+<style type="text/css">
+html, body {
+    height: 100%;
+    margin: 0px;
+    padding: 0px;
+    width: 100%;
+}
+</style>
+<script type="text/javascript">
+var djConfig = {
+    parseOnLoad : true
+};
+</script>
+
+<script type="text/javascript" src="http://serverapi.arcgisonline.com/jsapi/arcgis/?v=2.8compact"></script>
+
+<script type="text/javascript">
+djConfig = dojo.config;
+dojo.require("dojox.mobile.parser");
+dojo.require("dojox.mobile");
+dojo.require("dojo.number");
+dojo.require("esri.tasks.route");
+dojo.require("esri.tasks.query");
+dojo.require("esri.tasks.locator");
+dojo.require("esri.tasks.geometry");
+dojo.require("esri.layers.FeatureLayer");
+dojo.requireIf(!dojo.isWebKit, "dojox.mobile.compat");
+
+var locator, map, currentGraphic, geomService, query;
+var mySymbol;
+var featureLayer, offSatFeatureLayer, venFeatureLayer;
+var centerFeatureLayer;
+var infoTemplate;
+var offSatInfoTemplate, venInfoTemplate;
+var offSatRenderer, venRenderer;
+var myRenderer;
+var currentLocation;
+var resultLocationsLayer, routeGraphicLayer, segmentGraphicsLayer;
+var routeTask, routeParams, directionFeatures;
+var watchProcess;
+var progressIndicator;
+var currentBufferDist = 25;
+var pointSource;
+var itemList;
+var startSymbol;
+
+function init() {
+esri.config.defaults.io.proxyUrl = "http://gis.dhss.mo.gov/Website/proxy/proxy.ashx";
+esri.config.defaults.io.alwaysUseProxy = true;
+var supportsOrientationChange = "onorientationchange" in window, orientationEvent = supportsOrientationChange ? "orientationchange" : "resize";
+if (supportsOrientationChange) {
+    window.addEventListener(orientationEvent, function() {
+        orientationChanged();
+    }, false);
+}
+//routeTask = new esri.tasks.RouteTask("http://servicesbeta.esri.com/ArcGIS/rest/services/Network/USA/NAServer/Route");
+routeTask = new esri.tasks.RouteTask("https://ogi.oa.mo.gov/ArcGIS/rest/services/BaseMap/Route/NAServer/Route");
+locator = new esri.tasks.Locator("http://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer");
+//locator2 = new esri.tasks.Locator("http://sampleserver1.arcgisonline.com/ArcGIS/rest/services/Locators/ESRI_Geocode_USA/GeocodeServer");   
+dojo.connect(locator, "onAddressToLocationsComplete", showGeocodeResults);
+var spatialReference = new esri.SpatialReference({
+    wkid : 102100
+});
+startExtent = new esri.geometry.Extent(-10723197, 4186914, -9829190, 4992866, spatialReference);
+map = new esri.Map("map", {
+    extent : startExtent
+});
+var baseMapLayer = new esri.layers.ArcGISTiledMapServiceLayer("http://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer", {
+    id : "baseMapLayer"
+});
+map.addLayer(baseMapLayer);
+
+//Use the Geolocation API to get current location and track it as you move
+if (navigator.geolocation) {   
+     navigator.geolocation.getCurrentPosition(estimateAddressLocation, geoLocationError);
+} else {
+  alert("No geolocation support. You must specify a starting address to begin your search.");
+    dojo.byId('loc').innerHTML = "Your location not detected";
+    dojo.byId('acc').innerHTML = "Use 'Enter my starting address' to set your current location.";
+}
+
+dojo.connect(dijit.byId('WICoffSatItem'), "onClick", function() {
+    if (!currentGraphic) {
+        alert("No geolocation support. You must specify a starting address to begin your search");
+
+    } else {
+        queryFeatures('offSat');
+    }
+});
+dojo.connect(dijit.byId('WICvendorItem'), "onClick", function() {
+    if (!currentGraphic) {
+        alert("No geolocation support. You must specify a starting address to begin your search");
+    } else {
+        queryFeatures('vendor');
+    }
+});
+dojo.connect(dijit.byId('geoLocateItem'), "onClick", function() {
+    if (navigator.geolocation) {
+     navigator.geolocation.getCurrentPosition(estimateAddressLocation, geoLocationError);
+} else {
+  alert("No geolocation support. You must specify a starting address to begin your search.");
+    dojo.byId('loc').innerHTML = "Your location not detected";
+    dojo.byId('acc').innerHTML = "Use 'Enter my starting address' to set your current location."; 
+}
+    });
+dojo.connect(map, "onLoad", function(map) {
+    geomService = new esri.tasks.GeometryService("http://gis.dhss.mo.gov/ArcGIS/rest/services/Geometry/GeometryServer");
+    routeParams = new esri.tasks.RouteParameters();
+    routeParams.stops = new esri.tasks.FeatureSet();
+    routeParams.returnRoutes = true;
+    routeParams.returnDirections = true;
+    routeParams.directionsLengthUnits = esri.Units.MILES;
+    routeParams.outSpatialReference = map.spatialReference;
+
+    resultLocationsLayer = new esri.layers.GraphicsLayer({
+        id : "resultLocationsLayer"
+    });
+    map.addLayer(resultLocationsLayer);
+
+    var routePolylineSymbol = new esri.symbol.SimpleLineSymbol(esri.symbol.SimpleLineSymbol.STYLE_SOLID, new dojo.Color([115, 44, 123, 0.6]), 4.5);
+    var routeRenderer = new esri.renderer.SimpleRenderer(routePolylineSymbol);
+    routeGraphicLayer = new esri.layers.GraphicsLayer({
+        id : "routeGraphicLayer"
+    });
+    routeGraphicLayer.setRenderer(routeRenderer);
+    map.addLayer(routeGraphicLayer);
+
+    var segmentSymbol = new esri.symbol.SimpleLineSymbol(esri.symbol.SimpleLineSymbol.STYLE_SOLID, new dojo.Color([102, 255, 255, 0.5]), 10);
+    var segmentRenderer = new esri.renderer.SimpleRenderer(segmentSymbol);
+    segmentGraphicsLayer = new esri.layers.GraphicsLayer({
+        id : "segmentGraphicsLayer"
+    });
+    segmentGraphicsLayer.setRenderer(segmentRenderer);
+    map.addLayer(segmentGraphicsLayer);
+
+
+offSatSymbol = new esri.symbol.PictureMarkerSymbol('images/Office.png', 32, 32);
+    offSatRenderer = new esri.renderer.SimpleRenderer(offSatSymbol);
+    offSatInfoTemplate = new esri.InfoTemplate();
+    offSatInfoTemplate.setTitle("<b>${FACILITY}</b>");
+    offSatInfoTemplate.setContent("${ADDRESS}<br/>" + "${CITY},  ${STATE}  ${ZIP}<br/>" + "Phone: ${PHONE}<br>" + "Hours: ${HOURS}");
+    offSatFeatureLayer = new esri.layers.FeatureLayer("http://gis.dhss.mo.gov/arcgis/rest/services/sdeWIC/MapServer/0", {
+        id : "offSatFeatureLayer",
+        mode : esri.layers.FeatureLayer.MODE_SELECTION,
+        outFields : ['*'],
+        renderer : offSatRenderer,
+        infoTemplate : offSatInfoTemplate
+    });
+    map.addLayer(offSatFeatureLayer);
+        venSymbol = new esri.symbol.PictureMarkerSymbol('images/grocery_cart.png', 32, 32);
+    venRenderer = new esri.renderer.SimpleRenderer(venSymbol);
+    venInfoTemplate = new esri.InfoTemplate();
+    venInfoTemplate.setTitle("<b>${FACILITY}</b>");
+    venInfoTemplate.setContent("${ADDRESS}<br/>" + "${CITY},  ${STATE}  ${ZIP}<br/>" + "${Description}");
+
+    venFeatureLayer = new esri.layers.FeatureLayer("http://gis.dhss.mo.gov/arcgis/rest/services/sdeWIC/MapServer/1", {
+        id : "venFeatureLayer",
+        mode : esri.layers.FeatureLayer.MODE_SELECTION,
+        outFields : ['*'],
+            renderer : venRenderer,
+            infoTemplate : venInfoTemplate
+
+        });
+        map.addLayer(venFeatureLayer);
+        
+        query = new esri.tasks.Query();
+       startSymbol = new esri.symbol.PictureMarkerSymbol('images/bluedot.png', 20, 20);
+    });
+}// end init
+
+//functions for geolocation API
+function estimateAddressLocation(location) {
+var pt = new esri.geometry.Point(location.coords.longitude, location.coords.latitude, new esri.SpatialReference({
+    wkid : 4326
+}));
+// Geolocation api returns an address but iPhone returns null so use reverse geocoding to get address
+
+ locator.locationToAddress(pt, 100, function(candidate) {
+    if (candidate.address) {
+        var address = candidate.address.Address + "<br/> " + candidate.address.City + ", " + candidate.address.Region + " " + candidate.address.Postal;
+        //var address = candidate.address.Address + "<br/> " + candidate.address.City + ", " + candidate.address.State + " " + candidate.address.Zip;
+        dojo.byId('loc').innerHTML = address;
+        var webMercPt = esri.geometry.geographicToWebMercator(candidate.location);
+        dojo.byId('acc').innerHTML = "Location accurate within " + location.coords.accuracy + " meters <br />of the address listed.  Last Updated: " + new Date(location.timestamp).toLocaleString();
+      if (pointSource == "Geocode") {
+          currentLocation = candidate.location;
+      }else {
+        currentLocation = webMercPt; // webMercator  
+      }      
+        //update the current location icon
+        if (!currentGraphic) {
+            symbol = new esri.symbol.PictureMarkerSymbol('images/bluedot.png', 20, 20);
+            var attr = {
+                "Source" : "Geolocated point"
+            };
+           currentGraphic = new esri.Graphic(currentLocation, symbol, attr);
+            pointSource = "geoLocation";
+            map.graphics.add(currentGraphic);
+            map.centerAndZoom(currentLocation, 16);
+        } else {
+           currentGraphic.setGeometry(currentLocation);
+        }
+    }
+}, function(error) {
+    dojo.byId('loc').innerHTML = 'Unable to approximate address for your current location';
+    });
+}
+
+function geoLocationError(error) {
+if (watchProcess !== null) {
+    navigator.geolocation.clearWatch(watchProcess);
+    watchProcess = null;
+}
+switch (error.code) {
+    case error.PERMISSION_DENIED:
+        alert("Geolocation access denied or disabled. To enable geolocation on your iPhone, go to Settings > General > Location Services");
+
+        break;
+
+    case error.POSITION_UNAVAILABLE:
+        alert("Location information not available");
+        break;
+
+    case error.TIMEOUT:
+        alert("Request to get located timed out.");
+        break;
+
+    default:
+        alert("unknown error");
+            break;
+    }
+
+}
+//functions for progress indicator
+function createProgress(nodeId) {  
+var container = dojo.byId(nodeId);
+container.innerHTML = "";
+    progressIndicator = dojox.mobile.ProgressIndicator.getInstance();
+    container.appendChild(progressIndicator.domNode);
+    progressIndicator.start();
+}
+
+/*
+function clearProgress() {
+    progressIndicator.stop();
+}
+*/
+
+function queryFeatures(queryVal) {
+    //  createProgress('loc');
+var bufferParams = new esri.tasks.BufferParameters();
+bufferParams.geometries = [currentGraphic.geometry];
+bufferParams.distances = [currentBufferDist];
+bufferParams.unit = esri.tasks.GeometryService.UNIT_STATUTE_MILE;
+bufferParams.outSpatialReference = map.spatialReference;
+
+ geomService.buffer(bufferParams, function(geometries) {
+    var bufferGeometry = geometries[0];
+    var geometryExtent = bufferGeometry.getExtent();
+    query.geometry = geometryExtent;
+    query.outSpatialReference = map.spatialReference;
+    switch(queryVal) {
+        case 'offSat':
+            featureLayer = offSatFeatureLayer;
+            featureLayer.renderer = offSatRenderer;
+            featureLayer.infoTemplate = offSatInfoTemplate;
+            break;
+        case 'vendor':
+            featureLayer = venFeatureLayer;
+            featureLayer.renderer = venRenderer;
+            featureLayer.infoTemplate = venInfoTemplate;
+            break;
+    }
+    featureLayer.selectFeatures(query, esri.layers.FeatureLayer.SELECTION_NEW, function(features) {
+   // centerFeatureLayer.selectFeatures(query, esri.layers.FeatureLayer.SELECTION_NEW, function(features) {
+        itemList = dijit.byId('searchResults');
+        itemList.destroyDescendants();
+        //If no results are found users should increase search distance
+        if (features.length === 0) {
+            var noResults = new dojox.mobile.ListItem({
+                label : "No Results"
+            });
+            noResults.set("class", "mblVariableHeight");
+            noResults.domNode.innerHTML = "No results found.  Try a larger search distance using the settings option.";
+            itemList.addChild(noResults);
+            return;
+        }
+
+        //modifies the returned distance to something more user friendly
+        dojo.forEach(features, function(feature) {
+            feature.distance = Math.round((esri.geometry.getLength(feature.geometry, currentGraphic.geometry) / 1609.344) * 100) / 100;
+        });
+
+        //sorts the returned features so closest features are at the top
+        var sortedFeatures = features.sort(function(a, b) {
+            return a.distance - b.distance;
+        });
+
+        dojo.forEach(sortedFeatures, function(result) {          
+/*
+            var content = [];
+            content.push(result.attributes.FACILITY + "<br />" + result.attributes.ADDRESS + " - " + result.attributes.CITY + "<br />");
+            content.push(result.attributes.PHONE + "--" + result.distance + " miles<br/>");
+            var formatContent = content.join("");
+*/
+             var content = [];
+            content.push(result.attributes.FACILITY + "<br />" + result.attributes.ADDRESS + " - " + result.attributes.CITY + "<br />");
+            if(queryVal == "offSat") {
+               content.push(result.attributes.PHONE + " -- " + result.distance + " miles<br/>"); 
+            }else{
+               content.push(result.distance + " miles<br/>");  
+            }
+            
+            var formatContent = content.join("");
+            var resultItem = new dojox.mobile.ListItem({
+                label : result.attributes.FACILITY
+            });
+            resultItem.set("class", "mblVariableHeight");
+            resultItem.domNode.innerHTML = formatContent;
+             
+            var button = new dojox.mobile.Button({
+                label : 'Map It',
+                moveTo : 'mapView'
+            }).placeAt(resultItem.domNode);
+
+            var locationDetails = function(result) {
+                return function(results) {
+                    mapResults(results, result);
+                };
+            };
+
+            dojo.connect(button, "onClick", locationDetails(result));
+      
+            itemList.addChild(resultItem);
+        });
+      //  clearProgress();
+        //
+        }, function(error) {
+            alert(error.message);
+        });
+
+    }, function(error) {
+        alert(error.message);
+    });
+
+}
+
+//for routing
+function mapResults(results, feature) {
+ //   console.log("mapResults function");
+//move to the map view to display the route
+var widget = dijit.byId('resultsView');
+widget.performTransition('mapView', 1, "slide", function() {
+    map.resize();
+    resultLocationsLayer.clear();
+    routeGraphicLayer.clear();
+    segmentGraphicsLayer.clear();
+
+    //Define the route input parameters
+    routeParams.stops.features = [];
+  var mySymbol = new esri.symbol.SimpleMarkerSymbol().setColor(new dojo.Color([105, 153, 0]));
+    //Add the starting location to the map
+     var  startLoc = new esri.Graphic(currentLocation, mySymbol);
+  //  resultLocationsLayer.add(startLoc);
+  routeParams.stops.features.spatialReference = map.spatialReference;
+    routeParams.stops.features[0] = startLoc;
+
+    //Add the ending location to the map
+  
+    var endLoc = new esri.Graphic(feature.geometry, mySymbol);
+
+    routeParams.stops.features[1] = endLoc;
+
+    //Get the Route and display it and the directions on the MapView
+    routeTask.solve(routeParams);
+  //  routeTask.solve(params, function(solveResult) {
+  dojo.connect (routeTask, "onSolveComplete", showRoute);
+  dojo.connect (routeTask, "onError", routeError);
+    });
+}
+
+function showRoute (solveResult) {
+      var directions = solveResult.routeResults[0].directions;
+        directionFeatures = directions.features;
+        var content = [];
+        content.push("<ol>");
+        routeGraphicLayer.add(new esri.Graphic(directions.mergedGeometry));
+        dojo.forEach(directions.features, function(feature, index) {
+            if (index === 0 || index === directions.features.length - 1) {
+                content.push("<li>" + feature.attributes.text + "</li>");
+            } else {
+                content.push("<li onclick='zoomToSegment(" + index + "); return false;' class=\"segment\"><a href=\"#\">" + feature.attributes.text + "</a></li>");
+            }
+        });
+        content.push("</ol>");
+        dojo.byId("directions").innerHTML = content.join("");
+        var adjustExtent = directions.extent.expand(1.1);
+      //  map.setExtent(directions.extent, true);
+         map.setExtent(adjustExtent,true);
+} 
+function routeError(error) {
+     alert("Problem finding route \n" + error.message ); 
+        dojo.byId("directions").innerHTML = "<b>Problem finding route</b> " ;
+}
+function orientationChanged() {
+    if (map) {
+        map.reposition();
+        map.resize();
+    }
+}
+
+function updateDist(e) {
+currentBufferDist = e.title.split(" ")[0];
+
+var ul = dojo.byId("searchDistList");
+dojo.forEach(ul.childNodes, function(node) {
+    if (!(node.nodeType != 1 || node.tagName != "LI")) {
+        var w = dijit.byNode(node);
+        if (node === e) {
+            dojo.removeClass(w.btnNode, "mblCheckOffButton");
+            dojo.addClass(w.btnNode, "mblCheckOnButton");
+            //dijit.byId("distVal").srcNodeRef.children[0].children[1].textContent = e.children[0].children[0].textContent;
+        } else {
+            dojo.removeClass(w.btnNode, "mblCheckOnButton");
+            dojo.addClass(w.btnNode, "mblCheckOffButton");
+            }
+        }
+    });
+    var widget = dijit.byId('settingsView');
+widget.performTransition('homeView', -1, "fade", null);
+    
+}
+
+//Zoom to the appropriate segment afer clicking a hyperlink in the directions list
+function zoomToSegment(index) {
+    var segment = directionFeatures[index];
+    segmentGraphicsLayer.clear();
+    var segmentGraphic = new esri.Graphic(segment.geometry);
+    segmentGraphicsLayer.add(segmentGraphic);
+
+    map.setExtent(segment.geometry.getExtent(), true);
+    //move to the map view
+var widget = dijit.byId('directionsView');
+widget.performTransition('mapView', -1, "fade", null);
+}
+
+function getDirections() {
+    //switch to the directions view
+var widget = dijit.byId('mapView');
+widget.performTransition('directionsView', 1, "fade", null);
+}
+
+// functions for geocoding
+function clearTextInput() {
+    dojo.byId("txtAddress").value = "";
+}
+
+/*
+function locate() {
+    map.graphics.clear();
+    var inputAddress = {
+        "SingleLine" : dojo.byId("txtAddress").value
+};
+
+locator.outSpatialReference = map.spatialReference;
+var options = {
+    address : inputAddress,
+    outFields : ["*"]
+    };
+    locator.addressToLocations(inputAddress);
+}
+*/
+function locate() {
+    map.graphics.clear();
+    locator.outSpatialReference = map.spatialReference;
+    var inputAddress = {
+        "SingleLine" : dojo.byId("txtAddress").value
+};
+ //    console.log(address.SingleLine);
+            var checkMO = inputAddress.SingleLine.slice(-2).toUpperCase();
+            var isNotANumber = false;
+            if (isNaN(checkMO)){
+                isNotANumber = true;
+                
+            }
+            var options;
+            if ( checkMO !== 'MO' && isNotANumber ) {
+              //  console.log("not MO");
+                var newInputAddress = {"SingleLine" : dojo.byId("txtAddress").value + ",MO"};
+                options = {
+                address : newInputAddress,
+                outFields : ["*"]
+                };
+                locator.addressToLocations(newInputAddress);
+            }else {
+              //  console.log(inputAddress.SingleLine + "has MO");
+                options = {
+                address : inputAddress,
+                outFields : ["*"]
+            };
+            locator.addressToLocations(inputAddress);
+            }          
+   }
+           
+function showGeocodeResults(candidates) {
+    if (candidates.length === 0) {
+        alert("No matches found for your address.");
+}
+var candidate;
+var addrInfoTemplate = new esri.InfoTemplate("Search Point");
+
+var geom;
+
+dojo.every(candidates, function(candidate) {
+ //   console.log(candidate.score);
+    if (candidate.score > 80) {
+      //  console.log(candidate.location);
+        var attributes = {
+            address : candidate.address
+        };
+        geom = candidate.location;
+        currentLocation = geom;
+        pointSource = "Geocode";
+        var attr = {
+            "Address" : candidate.address
+        };
+        currentGraphic = new esri.Graphic(geom, startSymbol, attr, addrInfoTemplate);
+        map.graphics.add(currentGraphic);
+        map.centerAndZoom(geom, 16);
+        var foundAddress = candidate.address;
+        dojo.byId('loc').innerHTML = foundAddress;
+        dojo.byId('acc').innerHTML = "Not using geolocation, searching from address.";
+        return false;
+        //break out of loop after one candidate with score greater  than 80 is found.
+    }
+});
+if (geom !== undefined) {
+    var containsCountyPosition = (dojo.byId("txtAddress").value.toLowerCase().indexOf(" county"));
+    if (containsCountyPosition > 0) {
+        map.centerAndZoom(geom, 10);
+    } else {
+        map.centerAndZoom(geom, 12);
+    }
+}
+
+//move to the map view
+var widget = dijit.byId('addressView');
+widget.performTransition('homeView', -1, "fade", null);
+}
+
+
+dojo.addOnLoad(init);
+
+</script>
+<script type="text/javascript">
+                  var gaJsHost = (("https:" == document.location.protocol) ? "https://ssl." : "http://www.");
+                  document.write(unescape("%3Cscript src='" + gaJsHost + "google-analytics.com/ga.js' type='text/javascript'%3E%3C/script%3E"));
+            </script>
+            <script type="text/javascript">
+                  try {
+                        var pageTracker = _gat._getTracker("UA-12671191-5");
+                        pageTracker._trackPageview();
+                  } catch(err) {}
+            </script>
+</head>
+
+<body >
+<div id="homeView" dojoType="dojox.mobile.View" selected="true">
+<h1 dojoType="dojox.mobile.Heading"> Find WIC Services </h1>
+<ul dojoType="dojox.mobile.EdgeToEdgeList" >
+<!--<li dojoType="dojox.mobile.ListItem" id="centerItem" moveTo="resultsView" title="Find Nearby Warning Center"
+iconPos="0,42,32,32" rightText="" >
+    <img  src="images/pin_red.png"  alt="pin image" style="clip: rect(0px, 32px, 32px, 0px); top: 7px; left: 8px;" />
+   Warming Center
+</li> -->
+<li dojoType="dojox.mobile.ListItem" id="WICoffSatItem" moveTo="resultsView" title="Find Nearby WIC offices and satellites."
+iconPos="0,0,32,32" rightText="" class = "mblVariableHeight">
+    <img  src="images/Office.png"  alt="office image" style="clip: rect(0px, 32px, 32px, 0px); top: 7px; left: 8px;" />
+    WIC offices and satellite
+</li>
+<li dojoType="dojox.mobile.ListItem" id="WICvendorItem" moveTo="resultsView" title="Find Nearby Stores that accept WIC."
+iconPos="0,42,32,32" rightText="" class = "mblVariableHeight">
+    <img  src="images/grocery_cart.png"  alt="cart image" style="clip: rect(0px, 32px, 32px, 0px); top: 7px; left: 8px;" />
+    Stores that accept WIC
+</li>
+
+<li dojoType="dojox.mobile.ListItem" id="AddressItem" moveTo="addressView" title="Device doesn't support geolocation?  Enter an address instead"
+iconPos="0,0,32,32" rightText="" class = "mblVariableHeight">
+    <img  src="images/mailbox.png"  alt="dot image" style="clip: rect(0px, 24px, 24px, 0px); top: 7px; left: 8px;" />
+    Enter a starting address
+</li>
+<li dojoType="dojox.mobile.ListItem" id="geoLocateItem" moveTo="homeView" title="Search from my current location"
+iconPos="0,0,32,32" rightText="" class = "mblVariableHeight">
+    <img  src="images/bluedot.png"  alt="dot image" style="clip: rect(0px, 24px, 24px, 0px); top: 7px; left: 8px;" />
+    Use my current location
+</li>
+<li dojoType="dojox.mobile.ListItem" id="settingsItem" moveTo="settingsView" iconPos="0,166,32,32" rightText="" class = "mblVariableHeight">
+    <img  src="images/settings.png" title="Change search distance - default 25 miles" alt="settings image" style="clip: rect(0px, 32px, 32px, 0px); top: 7px; left: 8px;" />
+Change Search Distance
+</li>
+
+</ul>
+<h2 dojoType="dojox.mobile.RoundRectCategory">Current Location</h2>
+<div id="loc" dojoType="dojox.mobile.RoundRect" ></div>
+<div id="acc" dojoType="dojox.mobile.RoundRect" ></div>
+<div>
+    <table width="250" border="0">
+        <tr>
+           <td > <img  src="images/WICImage2.png"  alt="WIC image" style="clip: rect(0px, 32px, 32px, 0px); top: 7px; left: 8px;" /></td>       
+        <td onclick="window.location.href = 'http://health.mo.gov/living/families/wic/index.php'" >Missouri WIC Program</td>
+        </tr>
+</table>   
+</div>
+<!--<div id="searchContent" dojoType="dojox.mobile.RoundRect">Search Distance 25 miles</div> -->
+</div>
+<div id="mapView" dojoType="dojox.mobile.View" style="width:100%;height:100%;">
+<h1 dojoType="dojox.mobile.Heading" back="Search Results" moveTo="resultsView">Map View</h1>
+<button id="btnDirections" style="position:absolute;right:5px;top:48px;z-index:99;" dojoType="dojox.mobile.Button" onClick="getDirections();">
+Get Directions
+</button>
+<div  style="width:100%;height:100%;" id="map"></div>
+</div>
+<div id="directionsView" dojoType="dojox.mobile.View">
+<h1 dojoType="dojox.mobile.Heading" back="Map" moveTo="mapView" transition="fade">Directions</h1>
+<div id="directions" dojoType="dojox.mobile.RoundRect" shadow="true" ></div>
+</div>
+<div id="detailsView" dojoType="dojox.mobile.View">
+<h1 dojoType="dojox.mobile.Heading" back="Search Results" moveTo="resultsView" transition="flip">Details</h1>
+<div id="details" dojoType="dojox.mobile.RoundRect" shadow="true" ></div>
+</div>
+<div id="resultsView" dojoType="dojox.mobile.View">
+<h1 dojoType="dojox.mobile.Heading" back="Main Menu" moveTo="homeView">Search Results</h1>
+<ul id="searchResults" dojoType="dojox.mobile.RoundRectList"></ul>
+</div>
+<div id="addressView" dojoType="dojox.mobile.View">
+<h1 dojoType="dojox.mobile.Heading" back="Main Menu" moveTo="homeView">Enter an address</h1>
+<ul id="addressEntry" dojoType="dojox.mobile.RoundRectList" style="height:100px">
+Enter address:
+<input id="txtAddress" type="text" class="textBox" value="Search by address or place" style="width:270px "
+onclick="clearTextInput();" onkeydown="if (event.keyCode == 13) {document.getElementById('btnGO').click();}" />
+<button id="btnGO" dojoType="dojox.mobile.Button" onClick="locate();">
+    GO
+</button>
+</ul>
+</div>
+<div id="settingsView" dojoType="dojox.mobile.View">
+<h1 dojoType="dojox.mobile.Heading" back="Main Menu" moveTo="homeView" title="Change search distance - miles">Change Search Distances</h1>
+<ul dojoType="dojox.mobile.EdgeToEdgeList" id="searchDistList">
+
+<li dojoType="dojox.mobile.ListItem" btnClass="mblCheckOffButton" onClick="updateDist(this);" title="5 miles">
+5 miles
+</li>
+<li dojoType="dojox.mobile.ListItem" btnClass="mblCheckOffButton" onClick="updateDist(this);" title="10 miles">
+10 miles
+</li>
+<li dojoType="dojox.mobile.ListItem" btnClass="mblCheckOnButton" onClick="updateDist(this);" title="25 miles">
+25 miles
+</li>
+<li dojoType="dojox.mobile.ListItem" btnClass="mblCheckOffButton" onClick="updateDist(this);" title="50 miles">
+50 miles
+</li>
+
+</ul>
+</div>
+</body>
+</html>
